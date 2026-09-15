@@ -7,26 +7,27 @@ import pandas as pd
 GRETEL_DATASET = "gretelai/synthetic_text_to_sql"
 OUTPUT_DIR = "processed_data"
 
-# Clean start: Remove the folder if it exists to prevent appending errors
-if os.path.exists(OUTPUT_DIR):
-    shutil.rmtree(OUTPUT_DIR)
-os.makedirs(OUTPUT_DIR)
-
-SYSTEM_PROMPT = """You are a powerful text-to-SQL model. Your job is to answer questions about a database. You are given a question and context regarding one or more tables. 
+SYSTEM_PROMPT = """You are a powerful text-to-SQL model. Your job is to answer questions about a database. You are given a question and context regarding one or more tables.
 
 You must output a brief explanation of your logic, followed by the valid SQL query."""
 
 def format_gretel_example(example):
-    instruction = example['sql_prompt']
-    schema = example['sql_context']
-    output_sql = example['sql']
-    explanation = example['sql_explanation']
-    
-    # Create the response format: Explanation + SQL
-    formatted_response = f"-- {explanation}\n{output_sql}"
+    # Store the raw fields only. SYSTEM_PROMPT is a constant, so it's applied
+    # by build_prompt() at use-time instead of being repeated in every row
+    # (that alone would add ~26MB of pure duplication across 100k rows).
+    # sql/explanation are stored once here, not also baked into a second
+    # "formatted_prompt" string, so nothing is duplicated on disk.
+    return {
+        "instruction": example['sql_prompt'],
+        "schema": example['sql_context'],
+        "sql": example['sql'],
+        "explanation": example['sql_explanation'],
+    }
 
-    # Create the final prompt
-    formatted_text = f"""{SYSTEM_PROMPT}
+
+def build_prompt(instruction: str, schema: str) -> str:
+    """Reconstructs the full training-style prompt from the raw fields on demand."""
+    return f"""{SYSTEM_PROMPT}
 
 ### Instruction:
 {instruction}
@@ -35,15 +36,16 @@ def format_gretel_example(example):
 {schema}
 
 ### Response:
-{formatted_response}
 """
-    return {
-        "formatted_prompt": formatted_text,
-        "ground_truth_sql": output_sql,
-        "explanation": explanation
-    }
 
 def process_data():
+    # Clean start: remove the folder if it exists to prevent appending errors.
+    # This only runs when process_data() is actually called (i.e. `python
+    # data_loader.py`), not as a side effect of importing build_prompt().
+    if os.path.exists(OUTPUT_DIR):
+        shutil.rmtree(OUTPUT_DIR)
+    os.makedirs(OUTPUT_DIR)
+
     print(f"--- 1. Downloading Data from {GRETEL_DATASET} ---")
     dataset = load_dataset(GRETEL_DATASET, split="train")
     

@@ -1,81 +1,47 @@
 import pandas as pd
-import faiss
-from sentence_transformers import SentenceTransformer
-import numpy as np
-import pickle
 import os
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_community.vectorstores import FAISS
+from langchain_core.documents import Document
 
 # --- CONFIG ---
 DATA_PATH = "processed_data/train_data.jsonl"
 INDEX_PATH = "vector_store"
-MODEL_NAME = "all-MiniLM-L6-v2" # Fast and effective for semantic search
+MODEL_NAME = "all-MiniLM-L6-v2"  # Fast and effective for semantic search
 
 def build_vector_store():
     print(f"--- 1. Loading Processed Data from {DATA_PATH} ---")
-    
+
     try:
         df = pd.read_json(DATA_PATH, lines=True, orient='records')
     except ValueError:
         print("Error: Could not read JSONL file. Ensure 'data_loader.py' ran successfully.")
         return
 
-    print("Extracting unique schemas from prompts...")
-    
-    # We need to pull the Schema back out of the formatted prompt.
-    # The format is rigid, so we can split by our known headers.
-    schemas = []
-    
-    for prompt in df['formatted_prompt']:
-        try:
-            # Extract text between "### Database Schema:" and "### Response:"
-            part1 = prompt.split("### Database Schema:\n")[1]
-            schema_text = part1.split("\n\n### Response:")[0].strip()
-            
-            if schema_text:
-                schemas.append(schema_text)
-        except IndexError:
-            # Skip rows if formatting is unexpected (shouldn't happen with clean data)
-            continue
-            
+    print("Extracting unique schemas...")
+
     # Deduplicate! We only want unique tables in our "Library"
-    unique_schemas = list(set(schemas))
+    unique_schemas = list(set(df['schema'].dropna().tolist()))
     print(f"Found {len(unique_schemas)} unique table schemas.")
-    
-    # --- 2. Initialize Embedding Model ---
+
+    # --- 2. Initialize Embedding Model (LangChain wrapper around SentenceTransformers) ---
     print(f"--- 2. Loading Embedding Model ({MODEL_NAME}) ---")
-    # This downloads a small model that converts text to numbers
-    encoder = SentenceTransformer(MODEL_NAME)
-    
-    # --- 3. Create Embeddings ---
-    print("Creating vectors (This turns text into numbers)...")
-    vectors = encoder.encode(unique_schemas, show_progress_bar=True)
-    
-    # FAISS expects float32 format
-    vectors = np.array(vectors).astype('float32')
-    
-    # --- 4. Build FAISS Index ---
-    print("--- 3. Building FAISS Index ---")
-    # Dimension of the vectors (384 for MiniLM)
-    d = vectors.shape[1] 
-    
-    # Create a flat (exact) index. Good for datasets < 1M items.
-    index = faiss.IndexFlatL2(d) 
-    index.add(vectors)
-    
-    # --- 5. Save Everything ---
+    embeddings = HuggingFaceEmbeddings(model_name=f"sentence-transformers/{MODEL_NAME}")
+
+    # --- 3. Build the LangChain FAISS vector store ---
+    # LangChain's FAISS.from_texts() embeds the schemas AND stores the
+    # original text alongside the vectors in one object (a docstore),
+    # so we no longer need a separate schemas.pkl file.
+    print("--- 3. Building FAISS Vector Store (embedding + indexing) ---")
+    docs = [Document(page_content=schema) for schema in unique_schemas]
+    vectorstore = FAISS.from_documents(docs, embeddings)
+
+    # --- 4. Save ---
     os.makedirs(INDEX_PATH, exist_ok=True)
-    
-    # Save the FAISS index (the math part)
-    faiss.write_index(index, os.path.join(INDEX_PATH, "schema.index"))
-    
-    # Save the actual text schemas (the readable part)
-    # We need this so when FAISS finds "Vector #42", we know what text that corresponds to.
-    with open(os.path.join(INDEX_PATH, "schemas.pkl"), "wb") as f:
-        pickle.dump(unique_schemas, f)
-        
+    vectorstore.save_local(INDEX_PATH)
+
     print(f"\nSuccess! Vector store saved to: {os.path.abspath(INDEX_PATH)}")
-    print("  - schema.index (The search engine)")
-    print("  - schemas.pkl  (The database definitions)")
+    print("  - index.faiss / index.pkl (LangChain FAISS store: vectors + schema text)")
 
 if __name__ == "__main__":
     build_vector_store()
