@@ -10,10 +10,24 @@ __pycache__/
 # Data and Vector Stores (Too large for GitHub)
 processed_data/
 vector_store/
+vector_store_*/
 
 # LoRA fine-tuning artifacts (regenerate with finetune_lora.py)
 lora_adapter/
 lora_checkpoints/
 
+# Superseded/rejected model variants, kept for reference only
+old_models/
+
+# Embedding fine-tuning artifacts (regenerate with finetune_embeddings.py)
+finetuned_embedding_model/
+finetuned_embedding_model_*/
+
 # OS generated files
 .DS_Store
+~$*.docx
+~$*.doc
+# API keys
+.env
+# Ad-hoc run logs (results are captured in metrics.docx / architecture.docx)
+*.log

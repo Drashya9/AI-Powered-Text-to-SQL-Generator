@@ -6,10 +6,14 @@ from sqlglot import exp
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
+from data_loader import PROMPT_TEMPLATE
+from rag_builder import clean_schema
+from main import extract_sql
+
 # --- CONFIG ---
 DATA_PATH = "processed_data/train_data.jsonl"
 BASE_MODEL = "NumbersStation/nsql-350M"
-ADAPTER_PATH = "lora_adapter"
+ADAPTER_PATH = "old_models/lora_adapter"  # moved here once Qwen replaced nsql in production
 
 # Must match finetune_lora.py's TRAIN_SUBSET_SIZE / seed exactly, so we know
 # precisely which 500 rows the adapter was trained on and can exclude them
@@ -20,21 +24,6 @@ TRAIN_SEED = 42
 TEST_FRACTION_OF_TRAIN = 0.20  # "almost 20%" of the training set size
 TEST_SEED = 123
 MAX_NEW_TOKENS = 120
-
-# Same prompt template main.py actually uses in production -- this is the
-# format that matters, since that's what the LoRA adapter has to work under
-# regardless of what format it was trained on.
-PROMPT_TEMPLATE = """You are a SQL expert. Write a SQL query to answer the following question based on the provided schema.
-
-Schema:
-{schema}
-
-Question: {question}
-SQL Query:"""
-
-
-def extract_sql(full_text: str) -> str:
-    return full_text.split("SQL Query:")[-1].strip()
 
 
 def build_held_out_test_set(df: pd.DataFrame) -> pd.DataFrame:
@@ -64,7 +53,11 @@ def normalize_sql(sql_text: str) -> str:
 
 
 def generate_sql(model, tokenizer, question: str, schema: str) -> str:
-    prompt = PROMPT_TEMPLATE.format(schema=schema, question=question)
+    # Clean here, not at the call site: callers (e.g. evaluate_execution.py)
+    # need the RAW schema (with INSERT data) for actually running SQL against
+    # it, but the model should only ever see the cleaned version, matching
+    # both training and production retrieval.
+    prompt = PROMPT_TEMPLATE.format(schema=clean_schema(schema), question=question)
     inputs = tokenizer(prompt, return_tensors="pt")
     with torch.no_grad():
         out = model.generate(

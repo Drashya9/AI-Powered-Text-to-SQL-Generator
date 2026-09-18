@@ -6,6 +6,8 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingA
 from peft import LoraConfig, get_peft_model, TaskType
 
 from data_loader import build_prompt
+from rag_builder import clean_schema
+from main import extract_sql
 
 # --- CONFIG ---
 DATA_PATH = "processed_data/train_data.jsonl"
@@ -40,8 +42,13 @@ class SQLDataset(Dataset):
     def __init__(self, rows, tokenizer):
         self.examples = []
         for row in rows:
-            prompt = build_prompt(row["instruction"], row["schema"])
-            completion = f"-- {row['explanation']}\n{row['sql']}" + tokenizer.eos_token
+            # Clean the schema (drop INSERT sample data) so training input
+            # matches what retrieval will actually hand the model in
+            # production. Target is SQL only, no explanation -- see
+            # discussion: only ~35% of a completion's tokens were the SQL
+            # itself, the rest was prose nothing downstream ever uses.
+            prompt = build_prompt(row["instruction"], clean_schema(row["schema"]))
+            completion = row["sql"] + tokenizer.eos_token
 
             prompt_ids = tokenizer(prompt, truncation=True, max_length=MAX_LENGTH).input_ids
             full_ids = tokenizer(
@@ -99,7 +106,7 @@ def generate_answers(model, tokenizer, questions, schema="(schema unknown for th
                 no_repeat_ngram_size=3,
             )
         text = tokenizer.decode(out[0], skip_special_tokens=True)
-        outputs.append(text.split("### Response:")[-1].strip())
+        outputs.append(extract_sql(text))
     return outputs
 
 

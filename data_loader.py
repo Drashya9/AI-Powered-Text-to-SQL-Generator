@@ -7,16 +7,24 @@ import pandas as pd
 GRETEL_DATASET = "gretelai/synthetic_text_to_sql"
 OUTPUT_DIR = "processed_data"
 
-SYSTEM_PROMPT = """You are a powerful text-to-SQL model. Your job is to answer questions about a database. You are given a question and context regarding one or more tables.
+# Single source of truth for the prompt shape -- used by BOTH finetune_lora.py
+# (training) and main.py (serving), so there's no train/serve mismatch. Ends
+# in "SQL Query:" so extract_sql() in main.py has a reliable marker to split
+# on, and so a SQL-only completion (no explanation) is the natural output.
+PROMPT_TEMPLATE = """You are a SQL expert. Write a SQL query to answer the following question based on the provided schema. Use only columns and tables explicitly mentioned in the provided schema.
 
-You must output a brief explanation of your logic, followed by the valid SQL query."""
+Schema:
+{schema}
+
+Question: {question}
+SQL Query:"""
+
 
 def format_gretel_example(example):
-    # Store the raw fields only. SYSTEM_PROMPT is a constant, so it's applied
-    # by build_prompt() at use-time instead of being repeated in every row
-    # (that alone would add ~26MB of pure duplication across 100k rows).
-    # sql/explanation are stored once here, not also baked into a second
-    # "formatted_prompt" string, so nothing is duplicated on disk.
+    # Store the raw fields only. sql/explanation are stored once here, not
+    # also baked into a second "formatted_prompt" string, so nothing is
+    # duplicated on disk. (explanation is kept for reference/debugging even
+    # though training no longer targets it -- see finetune_lora.py.)
     return {
         "instruction": example['sql_prompt'],
         "schema": example['sql_context'],
@@ -25,18 +33,10 @@ def format_gretel_example(example):
     }
 
 
-def build_prompt(instruction: str, schema: str) -> str:
-    """Reconstructs the full training-style prompt from the raw fields on demand."""
-    return f"""{SYSTEM_PROMPT}
-
-### Instruction:
-{instruction}
-
-### Database Schema:
-{schema}
-
-### Response:
-"""
+def build_prompt(question: str, schema: str) -> str:
+    """Fills the shared PROMPT_TEMPLATE. `schema` should already be cleaned
+    (see rag_builder.clean_schema) before being passed in here."""
+    return PROMPT_TEMPLATE.format(schema=schema, question=question)
 
 def process_data():
     # Clean start: remove the folder if it exists to prevent appending errors.
