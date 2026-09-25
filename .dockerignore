@@ -1,0 +1,39 @@
+# Local Python environment -- the image installs its own via requirements.txt
+venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets -- never bake into an image
+.env
+
+# Raw training data (only needed by training/rebuild scripts, not by the server)
+processed_data/
+
+# Superseded/experimental model variants -- NOT what main.py loads at runtime.
+# Only vector_store_finetuned_mpnet/ and finetuned_embedding_model_mpnet/
+# (production, per main.py's INDEX_PATH/EMBEDDING_MODEL) are actually needed
+# and are intentionally NOT excluded below.
+vector_store_finetuned_mpnet_augmented/
+vector_store_finetuned_mpnet_maxpool/
+vector_store_finetuned_mpnet_hardneg/
+finetuned_embedding_model_mpnet_augmented/
+finetuned_embedding_model_mpnet_maxpool/
+finetuned_embedding_model_mpnet_hardneg/
+old_models/
+lora_adapter/
+lora_adapter_qwen/
+lora_checkpoints/
+
+# Experiment artifacts and scratch files -- not needed to run the server
+*.log
+*.jsonl
+metrics.docx
+architecture.docx
+~$*.docx
+~$*.doc
+
+# OS / editor
+.DS_Store
+.git/

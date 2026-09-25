@@ -31,3 +31,7 @@ finetuned_embedding_model_*/
 .env
 # Ad-hoc run logs (results are captured in metrics.docx / architecture.docx)
 *.log
+
+# Regeneratable data caches (see generate_augmented_pairs.py / finetune_embeddings_hardneg.py)
+augmented_pairs_cache.jsonl
+hardneg_triplets_cache.jsonl
